@@ -1,0 +1,8 @@
+spack:
+  specs: []
+  view: true
+  concretizer:
+    unify: true
+  repos:
+    buildsys: repos/spack_repo/buildsys
+  packages: {}

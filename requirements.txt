@@ -1,0 +1,10 @@
+Jinja2
+pandas
+requests
+cmake-parser
+neomodel
+PyYaml
+matplotlib
+seaborn
+podman
+statsmodels

@@ -1,0 +1,7 @@
+.env
+artifacts
+__pycache__/
+env
+*.tar
+logs
+neo4j/neo4j.dump

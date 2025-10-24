@@ -1,0 +1,11 @@
+sentence-transformers
+faiss-cpu
+
+# pytorch stuff
+
+# ml cuda/11.8.0
+# # don't use the one compiled against cray mpich
+# pip uninstall -y torch 
+# pip install --no-cache-dir --force-reinstall \
+#   torch==2.4.1+cu118  \
+#   --index-url https://download.pytorch.org/whl/cu118

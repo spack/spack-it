@@ -1,0 +1,69 @@
+# dockerfile for swe agent
+
+FROM ghcr.io/spack/tutorial:icpp25
+
+USER root
+WORKDIR /
+
+RUN curl -k https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+RUN python get-pip.py
+RUN python -m pip install pipx
+RUN pipx install swe-rex
+RUN pipx ensurepath
+RUN pip install flake8
+
+USER spack
+
+WORKDIR /home/spack
+
+RUN git clone --depth=2  https://github.com/spack/spack
+
+# Initialize Spack env for subsequent commands
+RUN . spack/share/spack/setup-env.sh && \
+    spack bootstrap now && \
+    spack compiler find && \
+    spack mirror add tutorial /mirror && \
+    spack mirror add develop https://binaries.spack.io/develop && \
+    spack buildcache keys --install --trust && \
+    spack repo create $HOME/experiment experiment && \
+    spack repo add $HOME/experiment/spack_repo/experiment && \
+    spack config add config:url_fetch_method:'curl -k -q'
+
+ENV PATH="/home/spack/spack/bin:/opt/spack/view/bin:/root/spack/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+COPY --chown=spack:spack --chmod=0755 container/entrypoint.sh /usr/local/bin/entrypoint.sh
+WORKDIR /opt/spack-it
+RUN mkdir data
+COPY --chown=spack:spack --chmod=0644 data/buildsys.pkl data/
+RUN mkdir extraction
+COPY --chown=spack:spack --chmod=0644 --chown=spack:spack --chmod=0644  extraction/package.py extraction/package_schema.py extraction/
+RUN mkdir generate
+COPY --chown=spack:spack --chmod=0644 --chown=spack:spack --chmod=0644 generate/eval.py generate/
+COPY --chown=spack:spack --chmod=0644 --chown=spack:spack --chmod=0644 container/scores.py .
+
+WORKDIR /home/spack
+ENV PYTHONPATH="/opt/spack-it"
+
+
+USER root
+RUN ln -s /home/spack/.spack/package_repos/fncqgg4 /packages
+
+RUN git config --global --add safe.directory /home/spack/.spack/package_repos/fncqgg4
+
+# swe agent will reset any repo to HEAD so we need to commit the changes...
+RUN cd /packages; \
+  git config user.email "builder@local"; \
+  git config user.name "Docker Builder"; \
+  for d in \
+    openturns mpark_variant omega_h rocprim benchmark opencv rocprofiler_sdk lci umap pumi szx dla_future_fortran \
+    greenx plasma onednn nlopt hipsparse pace tasmanian warpx libcatalyst sundials ghost blaspp scr libpressio_predict \
+    rocsolver libpng qoz onnx eigen fxdiv netcdf_c hipcub xyce; \
+  do git rm -rf repos/spack_repo/builtin/packages/$d || true; \
+  done; \
+  git commit -m "Remove disabled packages from builtin Spack repo" || true
+
+RUN ln -s /home/spack/.spack /root/.spack
+RUN spack repo remove experiment
+
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["/bin/sleep","infinity"]   # absolute path is important

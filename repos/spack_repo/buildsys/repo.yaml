@@ -1,0 +1,3 @@
+repo:
+  namespace: 'buildsys'
+  api: v2.0
