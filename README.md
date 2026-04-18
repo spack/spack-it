@@ -5,6 +5,47 @@ spack-it is an experimental framework that uses LLMs to automatically generate S
 ![Flow Chart](img/chart.png)
 *Overview of the spack-it workflow. The agent coordinates tools for metadata extraction, retrieval, recipe generation, evaluation, and iterative repair. Retrieved examples are combined with repository metadata to guide generation, and failed builds trigger a repair loop that refines the recipe using feedback from Spack outputs.*
 
+
+----
+
+## Spack Packaging Skills
+We've written up some [skills](https://agentskills.io/home) for Spack recipe creation based on our findings. To use them with your preferred coding agent, link the skills to a local copy of the `spack-packages` repo.
+
+```
+git clone https://github.com/spack/spack-it.git
+ln -s "$PWD/spack-it/.agents" "$(spack location --repo)/../../../.agents"  # or .claude
+
+# in your coding agent
+create a spack package for repo https://github.com/cmelone/mathlib
+```
+
+> [!NOTE]
+> PRs are welcome:
+> 
+> - CMake-based repos are best supported at the moment, skills to extract metadata from Autotools/GNU Make-based repos are needed.
+> 
+> - If the skills don't function properly for your workflow, please submit suggestions.
+> 
+> - TODO: skills for updating existing recipes.
+
+
+
+### Cost
+
+Output of `/cost` for a Claude Code session using the skills.
+
+```
+Total cost:            $0.92
+Total duration (API):  2m 45s
+Total duration (wall): 8m 47s
+Total code changes:    65 lines added, 38 lines removed
+Usage by model:
+    claude-sonnet-4:  679 input, 10.4k output, 1.6m cache read, 75.0k cache write ($0.92)
+```
+
+----
+
+
 ## Run Analysis Scripts
 
 All analysis scripts are located in the `analysis/` directory. These scripts reproduce the figures and tables presented in the paper using the processed data stored in `results/`. Each script is self-contained and can be run independently to generate plots or summary statistics for a specific experiment (e.g., ablations, similarity metrics, etc).
