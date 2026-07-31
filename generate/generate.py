@@ -39,6 +39,12 @@ parser.add_argument(
     "--samples", type=int, default=5, help="number of experiments to run"
 )
 parser.add_argument(
+    "--seed",
+    type=int,
+    default=None,
+    help="fix the package shuffle order for reproducible/consistent task sets across ablation runs",
+)
+parser.add_argument(
     "--model",
     type=str,
     help="the model to use",
@@ -464,9 +470,13 @@ def pipeline():
     else:
         include = []
         exclude = []
-        # want to make sure the order in which samples are chosen is non-deterministic
+        # non-deterministic by default; pass --seed to fix the shuffle order so the
+        # same package subset is drawn across configs/models for consistent ablations
         pkgs_list = list(pkgs.values())
-        random.shuffle(pkgs_list)
+        if ARGS.seed is not None:
+            random.Random(ARGS.seed).shuffle(pkgs_list)
+        else:
+            random.shuffle(pkgs_list)
         for pkg in pkgs_list:
             if include:
                 if pkg.name in include:
