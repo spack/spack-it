@@ -161,16 +161,48 @@ class ResultsStore:
             f.write(json.dumps(run_entry) + "\n")
 
 
-def get_random_recipe(
-    pkgs: list[Package], build_system: str = None, avoid: str = None
-) -> tuple[str, str]:
-    filtered_pkgs = list(pkgs.values())
+# `pkgs` is loaded once per process and never mutated afterwards, so the indexes
+# below are cached per `id(pkgs)` instead of being rebuilt on every lookup call.
+# Across a few hundred package runs, find_similar_packages/get_random_recipe are
+# each called repeatedly against the same multi-thousand-entry corpus, so
+# rescanning it and rebuilding per-package sets every time is pure waste.
+_build_system_index_cache: dict[int, dict[str, list[str]]] = {}
+_dep_variant_names_cache: dict[int, tuple[dict[str, frozenset], dict[str, frozenset]]] = {}
 
-    # Filter by build system if provided
+
+def _get_build_system_index(pkgs: dict[str, Package]) -> dict[str, list[str]]:
+    key = id(pkgs)
+    if key not in _build_system_index_cache:
+        index: dict[str, list[str]] = {}
+        for name, pkg in pkgs.items():
+            for build_system in pkg.build_systems:
+                index.setdefault(build_system, []).append(name)
+        _build_system_index_cache[key] = index
+    return _build_system_index_cache[key]
+
+
+def _get_dep_variant_names(
+    pkgs: dict[str, Package],
+) -> tuple[dict[str, frozenset], dict[str, frozenset]]:
+    key = id(pkgs)
+    if key not in _dep_variant_names_cache:
+        dep_names = {}
+        variant_names = {}
+        for name, pkg in pkgs.items():
+            dep_names[name] = frozenset(dep.pkg_name for dep in pkg.dependencies)
+            variant_names[name] = frozenset(var.name for var in pkg.variants)
+        _dep_variant_names_cache[key] = (dep_names, variant_names)
+    return _dep_variant_names_cache[key]
+
+
+def get_random_recipe(
+    pkgs: dict[str, Package], build_system: str = None, avoid: str = None
+) -> tuple[str, str]:
     if build_system is not None:
-        filtered_pkgs = [
-            pkg for pkg in filtered_pkgs if build_system in pkg.build_systems
-        ]
+        names = _get_build_system_index(pkgs).get(build_system, [])
+        filtered_pkgs = [pkgs[name] for name in names]
+    else:
+        filtered_pkgs = list(pkgs.values())
 
     # Filter out the package to avoid
     if avoid is not None:
@@ -202,39 +234,51 @@ def find_similar_packages(
     dependencies = set(dependencies)
     variants = set(variants)
 
+    dep_names_by_pkg, variant_names_by_pkg = _get_dep_variant_names(pkgs)
+    candidate_names = _get_build_system_index(pkgs).get(build_system, [])
+
     scored = []
-    for pkg in pkgs.values():
-        if pkg.name == pkg_name or pkg_name.lower() in pkg.name.lower():
-            continue
-        if build_system not in pkg.build_systems:
+    for name in candidate_names:
+        if name == pkg_name or pkg_name.lower() in name.lower():
             continue
 
-        dep_score = len(dependencies & {dep.pkg_name for dep in pkg.dependencies})
-        var_score = len(variants & {var.name for var in pkg.variants})
+        dep_score = len(dependencies & dep_names_by_pkg[name])
+        var_score = len(variants & variant_names_by_pkg[name])
         total_score = 0.6 * dep_score + 0.4 * var_score
 
-        scored.append((pkg.name, pkg.recipe, total_score))
+        scored.append((name, pkgs[name].recipe, total_score))
 
     scored.sort(key=lambda entry: entry[2], reverse=True)
     return scored[:num_similar_refs]
 
 
 # TEMPLATE/PROMPT HANDLING
+# render_template is called multiple times per generation attempt, so the
+# Environment (and its template parse cache) is built once per TEMPLATE_DIR
+# instead of re-scanning the filesystem and re-parsing templates every call.
+_template_env_cache: dict[str, Environment] = {}
+
+
+def _get_template_env(template_dir: str) -> Environment:
+    if template_dir not in _template_env_cache:
+        _template_env_cache[template_dir] = Environment(
+            loader=FileSystemLoader(template_dir),
+            trim_blocks=True,
+            lstrip_blocks=True,
+        )
+    return _template_env_cache[template_dir]
+
+
 def render_template(template: str, params: dict) -> str:
-    env = Environment(
-        loader=FileSystemLoader(os.getenv("TEMPLATE_DIR")),
-        trim_blocks=True,
-        lstrip_blocks=True,
-    )
+    template_dir = os.getenv("TEMPLATE_DIR")
+    env = _get_template_env(template_dir)
 
     template_file = f"{template}.txt"
 
     try:
         template = env.get_template(template_file)
     except TemplateNotFound:
-        raise ValueError(
-            f"Template '{template}' does not exist in {os.getenv('TEMPLATE_DIR')}"
-        )
+        raise ValueError(f"Template '{template}' does not exist in {template_dir}")
 
     return template.render(**params)
 
