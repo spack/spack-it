@@ -180,6 +180,45 @@ def get_random_recipe(
     return random_pkg.name, random_pkg.recipe
 
 
+def find_similar_packages(
+    pkgs: dict[str, Package],
+    pkg_name: str,
+    build_system: str,
+    dependencies: list[str],
+    variants: list[str],
+    num_similar_refs: int,
+) -> list[tuple[str, str, float]]:
+    """
+    Finds the packages most similar to `pkg_name` by symbolic overlap of
+    dependencies and variants, restricted to packages sharing `build_system`.
+
+    Replaces the former Neo4j/Cypher GraphRAG lookup: since `pkgs` already
+    holds every field the old graph query touched, the same
+    dep_score/var_score/total_score computation can run directly in memory.
+
+    returns a list of (name, recipe, total_score) tuples, sorted by
+    descending total_score, of at most `num_similar_refs` entries.
+    """
+    dependencies = set(dependencies)
+    variants = set(variants)
+
+    scored = []
+    for pkg in pkgs.values():
+        if pkg.name == pkg_name or pkg_name.lower() in pkg.name.lower():
+            continue
+        if build_system not in pkg.build_systems:
+            continue
+
+        dep_score = len(dependencies & {dep.pkg_name for dep in pkg.dependencies})
+        var_score = len(variants & {var.name for var in pkg.variants})
+        total_score = 0.6 * dep_score + 0.4 * var_score
+
+        scored.append((pkg.name, pkg.recipe, total_score))
+
+    scored.sort(key=lambda entry: entry[2], reverse=True)
+    return scored[:num_similar_refs]
+
+
 # TEMPLATE/PROMPT HANDLING
 def render_template(template: str, params: dict) -> str:
     env = Environment(

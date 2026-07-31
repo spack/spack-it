@@ -29,9 +29,6 @@ spack-it requires a current installation of [Spack](https://spack.io) in order t
 
 We use existing Spack packages as reference data in spack-it. Running `spack python extraction/dump.py` will create the appropriate files in `data/`. Other scripts in this repository are set up to use the default location, but this can be configured to your needs.
 
-### Neo4j
-To get the E4S knowledge graph up and running, build the container image in the `neo4j/` folder with Docker, and run `spack python extraction/graph.py` to put the Spack package metadata into the database.
-
 ### Retrieval Augmented Generation (RAG)
 To run the RAG component of spack-it, you will need to index the chunks of Spack packages that you wish to retrieve from. See `rag/index.py` for more information. You may need a GPU system to run this in a computationally efficient manner.
 
@@ -48,7 +45,6 @@ podman build -f container/Dockerfile -t builder .
 # your system ppython
 export SPACK_PYTHON="./env/bin/python"
 export PYTHONPATH=$PYTHONPATH:.
-export NEO4J_URI="bolt://user:pass@localhost:7687"
 export TEMPLATE_DIR="generate/templates"
 
 # set to an openai LLM endpoint and key if necessary

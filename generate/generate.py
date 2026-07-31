@@ -1,12 +1,9 @@
 import argparse
 import functools
-import os
 import pickle
 import random
 import time
 from pathlib import Path
-
-from neomodel import config, db
 
 from extraction.cmake import parse_repo as parse_cmake
 from extraction.package_schema import Package
@@ -24,6 +21,7 @@ from generate.util import (
     ResultsStore,
     call_llm,
     extract_distilled_cmake,
+    find_similar_packages,
     get_random_recipe,
     load_git_repos,
     render_template,
@@ -121,7 +119,8 @@ parser.add_argument(
     "--similar_recipe",
     type=int,
     default=0,
-    help="include similar spack recipe in the LLM prompt (using GraphRAG)",
+    help="include similar spack recipe in the LLM prompt (symbolic overlap of "
+    "dependencies/variants against the local package corpus; requires --distilled_cmake)",
 )
 parser.add_argument(
     "--baseline",
@@ -130,6 +129,10 @@ parser.add_argument(
 )
 
 ARGS = parser.parse_args()
+
+if ARGS.similar_recipe and not ARGS.distilled_cmake:
+    parser.error("--similar_recipe requires --distilled_cmake")
+
 # load pkgs into the global namespace for use in all packages
 with open(ARGS.input, "rb") as f:
     pkgs = pickle.load(f)
@@ -152,8 +155,6 @@ results = ResultsStore(
 )
 rate_limiter = RateLimiter(max_calls=10, period=60)
 artifacts = ArtifactStore(run_id=run_id)
-
-config.DATABASE_URL = os.getenv("NEO4J_URI")
 
 if ARGS.rag:
     rag_idx = load_index_from_cache(
@@ -391,40 +392,24 @@ def generate_pkg(
     if ARGS.similar_recipe:
         prompt_input["num_similar_refs"] = ARGS.similar_recipe
 
-        if ARGS.distilled_cmake:
-            detected_dependencies, detected_variants = extract_distilled_cmake(
-                cmake_distilled
-            )
+        detected_dependencies, detected_variants = extract_distilled_cmake(
+            cmake_distilled
+        )
 
-            cypher_query = render_template(
-                "cypher_similar_pkg",
-                {
-                    # could replace this with list comprehension inside the template?
-                    "dependencies": f'["{'","'.join(map(str, detected_dependencies))}"]',
-                    "variants": f'["{'","'.join(map(str, detected_variants))}"]',
-                    "pkg_name": target_pkg.name,
-                    "build_sys": prompt_input["build_sys"],
-                    "num_similar_refs": prompt_input["num_similar_refs"],
-                },
-            )
-        else:
-            # need to use the llm to generate the query for us because it relies on parsed buildsys
-            cypher_query_prompt = render_template("find_similar_pkg", prompt_input)
-            artifacts.save(
-                target_pkg.name, "cypher_query_prompt.txt", cypher_query_prompt
-            )
-            _, cypher_query = call_llm(cypher_query_prompt, ARGS.model)
-        artifacts.save(target_pkg.name, "cypher_query.txt", cypher_query)
-        try:
-            results, _ = db.cypher_query(cypher_query)
-        except Exception as exc:
-            raise GenerateException(f"cypher query error: {exc}")
+        similar_pkgs = find_similar_packages(
+            pkgs,
+            pkg_name=target_pkg.name,
+            build_system=prompt_input["build_sys"],
+            dependencies=detected_dependencies,
+            variants=detected_variants,
+            num_similar_refs=prompt_input["num_similar_refs"],
+        )
 
-        for n in range(len(results)):
+        for n, (name, recipe, _score) in enumerate(similar_pkgs):
             key = f"similar{n}"
             references[key] = {}
-            references[key]["pkg"] = results[n][0]
-            references[key]["recipe"] = results[n][1]
+            references[key]["pkg"] = name
+            references[key]["recipe"] = recipe
     if ARGS.random_buildsys_recipe:
         for n in range(ARGS.random_buildsys_recipe):
             key = f"random_buildsys{n}"
