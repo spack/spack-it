@@ -65,6 +65,23 @@ def save_extraction_cache(pkg_name: str, data: dict) -> None:
         json.dump(data, f)
 
 
+def _read_lines(path: str, missing_msg: str) -> list[str]:
+    """shared reader for the one-name/pattern-per-line files below;
+    '#' comments and blank lines are skipped, missing files warn and return []"""
+    file = Path(path)
+    if not file.exists():
+        print(missing_msg.format(path=path))
+        return []
+
+    lines = []
+    for line in file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        lines.append(line)
+    return lines
+
+
 def load_ignore_patterns(path: str) -> list[str]:
     """
     Reads fnmatch patterns (one per line) from an ignore file, e.g.:
@@ -74,18 +91,22 @@ def load_ignore_patterns(path: str) -> list[str]:
     Returns [] (with a warning) rather than crashing a whole run if the file
     is missing -- an absent ignore file just means nothing gets excluded.
     """
-    file = Path(path)
-    if not file.exists():
-        print(f"warning: ignore file {path} not found, no packages will be excluded")
-        return []
+    return _read_lines(
+        path, "warning: ignore file {path} not found, no packages will be excluded"
+    )
 
-    patterns = []
-    for line in file.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        patterns.append(line)
-    return patterns
+
+def load_pkg_list(path: str) -> list[str]:
+    """
+    Reads exact package names (one per line) from a task-list file, used to fix
+    the exact set of packages a run operates on instead of randomly sampling
+    --samples packages from --input via --seed.
+    Returns [] (with a warning) rather than crashing a whole run if the file
+    is missing.
+    """
+    return _read_lines(
+        path, "warning: pkg_list file {path} not found, no packages will be selected"
+    )
 
 
 def load_completed_pkgs(results_path: str) -> set[str]:

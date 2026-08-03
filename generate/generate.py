@@ -28,6 +28,7 @@ from generate.util import (
     load_extraction_cache,
     load_git_repos,
     load_ignore_patterns,
+    load_pkg_list,
     render_template,
     save_extraction_cache,
 )
@@ -39,13 +40,27 @@ parser.add_argument(
     "--input", help="filename to a pickled file that has a list of Packages"
 )
 parser.add_argument(
-    "--samples", type=int, default=5, help="number of experiments to run"
+    "--samples",
+    type=int,
+    default=None,
+    help="number of experiments to run; defaults to 5, or to the length of "
+    "--pkg_list when that's given",
 )
 parser.add_argument(
     "--seed",
     type=int,
     default=None,
-    help="fix the package shuffle order for reproducible/consistent task sets across ablation runs",
+    help="fix the package shuffle order for reproducible/consistent task sets across "
+    "ablation runs; ignored when --pkg_list is given, since that already fixes the "
+    "exact task set",
+)
+parser.add_argument(
+    "--pkg_list",
+    type=str,
+    default=None,
+    help="path to a file of package names (one per line, # comments allowed) to use "
+    "as the exact task set, instead of randomly sampling --samples packages from "
+    "--input via --seed",
 )
 parser.add_argument(
     "--model",
@@ -160,6 +175,10 @@ if ARGS.similar_recipe and not ARGS.distilled_cmake:
     parser.error("--similar_recipe requires --distilled_cmake")
 
 IGNORE_PATTERNS = load_ignore_patterns(ARGS.ignore)
+PKG_LIST = load_pkg_list(ARGS.pkg_list) if ARGS.pkg_list else None
+
+if ARGS.samples is None:
+    ARGS.samples = len(PKG_LIST) if PKG_LIST is not None else 5
 
 
 def _config_slug() -> str:
@@ -565,7 +584,7 @@ def pipeline():
     if ARGS.git_repos:
         eligible = load_git_repos()
     else:
-        include = []
+        include = PKG_LIST if PKG_LIST is not None else []
         exclude = list(completed)
         # non-deterministic by default; pass --seed to fix the shuffle order so the
         # same package subset is drawn across configs/models for consistent ablations
