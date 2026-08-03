@@ -1,4 +1,5 @@
 import argparse
+import fnmatch
 import functools
 import pickle
 import random
@@ -24,8 +25,10 @@ from generate.util import (
     find_similar_packages,
     get_random_recipe,
     load_completed_pkgs,
+    load_extraction_cache,
     load_git_repos,
     render_template,
+    save_extraction_cache,
 )
 #from rag.retrieve import load_index_from_cache, retrieve_chunks
 
@@ -133,6 +136,13 @@ parser.add_argument(
     action="store_true",
     help="skip packages already completed in --results (per load_completed_pkgs) and "
     "only run enough additional packages to reach --samples total",
+)
+parser.add_argument(
+    "--ignore",
+    nargs="+",
+    default=["dealii", "roc*"],
+    help="package names/glob patterns (fnmatch, case-insensitive) to always exclude "
+    "from --samples selection, regardless of --resume/--seed",
 )
 
 ARGS = parser.parse_args()
@@ -322,52 +332,83 @@ def generate_pkg(
 
     print(f"generating package {target_pkg.name}")
 
-    if ARGS.git_repos:
-        stage = GitCloneStage(target_pkg.url)
-    else:
-        # fetch the package and put it into a tmp directory
-        stage, version = fetch_and_expand(target_pkg)
-        if stage is None and version is None:
-            raise GenerateException(f"could not fetch {target_pkg.name}")
-
-    if not stage:
-        raise GenerateException(f"stage not created for {target_pkg.name}")
-
     prompt_input = {"pkg_name": target_pkg.name}
-    with stage:
-        if ARGS.git_repos:
-            path = Path(stage.path)
-            version = f'git attrib: {target_pkg.url}; version directive: version("{target_pkg.branch}", branch="{target_pkg.branch}")'
-        else:
-            path = Path(stage.path) / "spack-src"
 
-        prompt_input["version"] = str(version)
+    # extraction (fetch + build-system detection + cmake parse) is the same for a
+    # given package regardless of ablation config/model, so it's cached across runs.
+    # skipped for --git_repos (no stable version/cache key) and --tree (tree walk
+    # needs the actual expanded source dir, which doesn't survive past the stage
+    # context manager, so it isn't part of what gets cached).
+    cache_eligible = not ARGS.git_repos and not ARGS.tree
+    cache = load_extraction_cache(target_pkg.name) if cache_eligible else None
+
+    if cache is not None:
+        prompt_input["version"] = cache["version"]
         if not ARGS.baseline:
-            # name of the primary build system detected, any features that were found
-            # this uses file-based detection, which doesn't really work with rocm or oneapi
-            # the LLM would need to deduce this based on what it finds the build system info (parsed or raw)
-            prompt_input["build_sys"], prompt_input["features"] = detect_build_systems(
-                path
+            prompt_input["build_sys"] = cache["build_sys"]
+            prompt_input["features"] = cache["features"]
+            prompt_input["cmake_parsed"] = cache["cmake_parsed"]
+            if ARGS.raw_buildsys:
+                prompt_input["raw_buildsys"] = prompt_input["cmake_parsed"]
+    else:
+        if ARGS.git_repos:
+            stage = GitCloneStage(target_pkg.url)
+        else:
+            # fetch the package and put it into a tmp directory
+            stage, version = fetch_and_expand(target_pkg)
+            if stage is None and version is None:
+                raise GenerateException(f"could not fetch {target_pkg.name}")
+
+        if not stage:
+            raise GenerateException(f"stage not created for {target_pkg.name}")
+
+        with stage:
+            if ARGS.git_repos:
+                path = Path(stage.path)
+                version = f'git attrib: {target_pkg.url}; version directive: version("{target_pkg.branch}", branch="{target_pkg.branch}")'
+            else:
+                path = Path(stage.path) / "spack-src"
+
+            prompt_input["version"] = str(version)
+            if not ARGS.baseline:
+                # name of the primary build system detected, any features that were found
+                # this uses file-based detection, which doesn't really work with rocm or oneapi
+                # the LLM would need to deduce this based on what it finds the build system info (parsed or raw)
+                prompt_input["build_sys"], prompt_input["features"] = (
+                    detect_build_systems(path)
+                )
+
+                if prompt_input["build_sys"] != "cmake":
+                    raise GenerateException(
+                        f"build sys {prompt_input['build_sys']} not supported"
+                    )
+                    # TODO add ability to parse and extract build system info
+                    # need to change/generalize parse_cmake and get_build_files
+
+                # store this for use in distilled_cmake
+                # parsed cmake is always required for distilled_cmake..but it needs a different name or else it'll be injected into the prompt for recipe generation
+                prompt_input["cmake_parsed"] = str(parse_cmake(path))
+
+            if ARGS.raw_buildsys:
+                prompt_input["raw_buildsys"] = prompt_input["cmake_parsed"]
+
+            if ARGS.tree:
+                prompt_input["tree"] = build_tree(path, max_depth=ARGS.tree_depth)
+
+        if cache_eligible and not ARGS.baseline:
+            save_extraction_cache(
+                target_pkg.name,
+                {
+                    "version": prompt_input["version"],
+                    "build_sys": prompt_input["build_sys"],
+                    "features": prompt_input["features"],
+                    "cmake_parsed": prompt_input["cmake_parsed"],
+                },
             )
 
-            if prompt_input["build_sys"] != "cmake":
-                raise GenerateException(
-                    f"build sys {prompt_input['build_sys']} not supported"
-                )
-                # TODO add ability to parse and extract build system info
-                # need to change/generalize parse_cmake and get_build_files
-
-            # store this for use in distilled_cmake
-            # parsed cmake is always required for distilled_cmake..but it needs a different name or else it'll be injected into the prompt for recipe generation
-            prompt_input["cmake_parsed"] = str(parse_cmake(path))
-
-        if ARGS.raw_buildsys:
-            prompt_input["raw_buildsys"] = prompt_input["cmake_parsed"]
-
-        if ARGS.tree:
-            prompt_input["tree"] = build_tree(path, max_depth=ARGS.tree_depth)
-
     if ARGS.distilled_cmake:
+        # not cached: distillation is model-dependent and we want it computed
+        # fresh every run rather than reused across models/configs
         cmake_distilled_prompt = render_template("cmake_distilled", prompt_input)
         artifacts.save(
             target_pkg.name, "cmake_distilled_prompt.txt", cmake_distilled_prompt
@@ -489,6 +530,12 @@ def pipeline():
                 eligible.append(pkg)
 
         eligible = [p for p in eligible if p.name not in exclude]
+
+    eligible = [
+        p
+        for p in eligible
+        if not any(fnmatch.fnmatch(p.name.lower(), pat.lower()) for pat in ARGS.ignore)
+    ]
 
     for pkg in eligible:
         if runs >= ARGS.samples:

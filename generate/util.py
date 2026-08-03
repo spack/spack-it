@@ -35,6 +35,36 @@ class GenerateException(Exception):
     pass
 
 
+EXTRACTION_CACHE_DIR = Path("data/metadata_cache")
+
+
+def load_extraction_cache(pkg_name: str) -> dict | None:
+    """
+    Returns the cached {version, build_sys, features, cmake_parsed} for a
+    package, or None if nothing is cached yet. This is the fetch + build-system
+    detection + CMake parse result, which is identical across every ablation
+    config/model for a given package, so it's cached once regardless of how
+    many configs reuse it. Does NOT include CMake distillation -- that's an
+    LLM call whose output depends on the model, so it's always computed fresh.
+
+    Caveat: keyed on pkg_name only, so if `--input` is regenerated with
+    different version selections for the same package names, stale entries
+    won't be detected -- clear `data/metadata_cache/` when switching inputs.
+    """
+    path = EXTRACTION_CACHE_DIR / f"{pkg_name}.json"
+    if not path.exists():
+        return None
+    with path.open() as f:
+        return json.load(f)
+
+
+def save_extraction_cache(pkg_name: str, data: dict) -> None:
+    EXTRACTION_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = EXTRACTION_CACHE_DIR / f"{pkg_name}.json"
+    with path.open("w") as f:
+        json.dump(data, f)
+
+
 def load_completed_pkgs(results_path: str) -> set[str]:
     """
     Scan an existing results jsonl and return the set of package names that
