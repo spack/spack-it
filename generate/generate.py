@@ -54,8 +54,15 @@ parser.add_argument(
 parser.add_argument(
     "--results",
     type=str,
-    default="data/results.jsonl",
-    help="where to store results of each run",
+    default=None,
+    help="where to store results of each run; if omitted, derived automatically "
+    "from --model and the active ablation flags under --results_dir",
+)
+parser.add_argument(
+    "--results_dir",
+    type=str,
+    default="results/rerun_2026",
+    help="directory used for the auto-derived --results filename",
 )
 parser.add_argument(
     "--max_attempts",
@@ -149,6 +156,53 @@ ARGS = parser.parse_args()
 
 if ARGS.similar_recipe and not ARGS.distilled_cmake:
     parser.error("--similar_recipe requires --distilled_cmake")
+
+
+def _config_slug() -> str:
+    """matches the none/none_raw/similar1_distilled/... naming used across the
+    ablation matrix, derived from the active flags rather than typed by hand"""
+    if ARGS.similar_recipe:
+        ref = f"similar{ARGS.similar_recipe}"
+    elif ARGS.random_recipe:
+        ref = f"random{ARGS.random_recipe}"
+    elif ARGS.random_buildsys_recipe:
+        ref = f"randombuildsys{ARGS.random_buildsys_recipe}"
+    else:
+        ref = "none"
+
+    if ARGS.raw_buildsys:
+        buildsys = "raw"
+    elif ARGS.distilled_cmake:
+        buildsys = "distilled"
+    else:
+        buildsys = "none"
+
+    return f"{ref}_{buildsys}"
+
+
+def _next_available(path: Path) -> Path:
+    """path.jsonl, path_2.jsonl, path_3.jsonl, ... whichever doesn't exist yet"""
+    if not path.exists():
+        return path
+    i = 2
+    while True:
+        candidate = path.with_name(f"{path.stem}_{i}{path.suffix}")
+        if not candidate.exists():
+            return candidate
+        i += 1
+
+
+if ARGS.results is None:
+    model_slug = ARGS.model.replace("/", "_").replace(":", "_")
+    ARGS.results = str(Path(ARGS.results_dir) / f"{model_slug}_{_config_slug()}.jsonl")
+
+results_path = Path(ARGS.results)
+if not ARGS.resume and results_path.exists():
+    suffixed = _next_available(results_path)
+    print(f"--resume not set and {results_path} already exists; writing to {suffixed} instead")
+    ARGS.results = str(suffixed)
+
+Path(ARGS.results).parent.mkdir(parents=True, exist_ok=True)
 
 # load pkgs into the global namespace for use in all packages
 with open(ARGS.input, "rb") as f:
