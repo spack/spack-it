@@ -27,6 +27,7 @@ from generate.util import (
     load_completed_pkgs,
     load_extraction_cache,
     load_git_repos,
+    load_ignore_patterns,
     render_template,
     save_extraction_cache,
 )
@@ -146,16 +147,19 @@ parser.add_argument(
 )
 parser.add_argument(
     "--ignore",
-    nargs="+",
-    default=["dealii", "roc*"],
-    help="package names/glob patterns (fnmatch, case-insensitive) to always exclude "
-    "from --samples selection, regardless of --resume/--seed",
+    type=str,
+    default="data/ignore.txt",
+    help="path to a file of package names/glob patterns (fnmatch, case-insensitive, "
+    "one per line, # comments allowed) to always exclude from --samples selection, "
+    "regardless of --resume/--seed",
 )
 
 ARGS = parser.parse_args()
 
 if ARGS.similar_recipe and not ARGS.distilled_cmake:
     parser.error("--similar_recipe requires --distilled_cmake")
+
+IGNORE_PATTERNS = load_ignore_patterns(ARGS.ignore)
 
 
 def _config_slug() -> str:
@@ -588,7 +592,9 @@ def pipeline():
     eligible = [
         p
         for p in eligible
-        if not any(fnmatch.fnmatch(p.name.lower(), pat.lower()) for pat in ARGS.ignore)
+        if not any(
+            fnmatch.fnmatch(p.name.lower(), pat.lower()) for pat in IGNORE_PATTERNS
+        )
     ]
 
     for pkg in eligible:

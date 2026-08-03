@@ -65,6 +65,29 @@ def save_extraction_cache(pkg_name: str, data: dict) -> None:
         json.dump(data, f)
 
 
+def load_ignore_patterns(path: str) -> list[str]:
+    """
+    Reads fnmatch patterns (one per line) from an ignore file, e.g.:
+        dealii
+        roc*
+        # comments and blank lines are skipped
+    Returns [] (with a warning) rather than crashing a whole run if the file
+    is missing -- an absent ignore file just means nothing gets excluded.
+    """
+    file = Path(path)
+    if not file.exists():
+        print(f"warning: ignore file {path} not found, no packages will be excluded")
+        return []
+
+    patterns = []
+    for line in file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        patterns.append(line)
+    return patterns
+
+
 def load_completed_pkgs(results_path: str) -> set[str]:
     """
     Scan an existing results jsonl and return the set of package names that

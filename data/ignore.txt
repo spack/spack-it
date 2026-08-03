@@ -1,0 +1,4 @@
+# one package name or fnmatch glob pattern per line, case-insensitive
+# blank lines and lines starting with # are ignored
+dealii
+roc*
