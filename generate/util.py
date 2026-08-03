@@ -35,6 +35,38 @@ class GenerateException(Exception):
     pass
 
 
+def load_completed_pkgs(results_path: str) -> set[str]:
+    """
+    Scan an existing results jsonl and return the set of package names that
+    already made it through `generate_handler` at least once (i.e., have any
+    logged status other than "workflow_fail", which is only written when
+    `pipeline()` catches a `GenerateException` before a package is counted
+    toward `--samples`). Used to resume an interrupted/incomplete run without
+    re-spending LLM calls and build attempts on packages already given their
+    full `--max_attempts` budget.
+    """
+    path = Path(results_path)
+    if not path.exists():
+        return set()
+
+    completed: set[str] = set()
+    with path.open() as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            name = row.get("pkg_name")
+            if name and row.get("status") != "workflow_fail":
+                completed.add(name)
+
+    return completed
+
+
 class ArtifactStore:
     """
     Lazily creates a unique run directory once, then

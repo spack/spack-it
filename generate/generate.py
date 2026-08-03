@@ -23,10 +23,11 @@ from generate.util import (
     extract_distilled_cmake,
     find_similar_packages,
     get_random_recipe,
+    load_completed_pkgs,
     load_git_repos,
     render_template,
 )
-from rag.retrieve import load_index_from_cache, retrieve_chunks
+#from rag.retrieve import load_index_from_cache, retrieve_chunks
 
 ####### CLI arguments
 parser = argparse.ArgumentParser()
@@ -126,6 +127,12 @@ parser.add_argument(
     "--baseline",
     action="store_true",
     help="option for experiment where we let the llm do all the research with no parsed data included",
+)
+parser.add_argument(
+    "--resume",
+    action="store_true",
+    help="skip packages already completed in --results (per load_completed_pkgs) and "
+    "only run enough additional packages to reach --samples total",
 )
 
 ARGS = parser.parse_args()
@@ -450,11 +457,17 @@ def pipeline():
     eligible = []
     runs = 0
 
+    completed: set[str] = set()
+    if ARGS.resume:
+        completed = load_completed_pkgs(ARGS.results)
+        runs = len(completed)
+        print(f"--resume: {runs} package(s) already completed in {ARGS.results}")
+
     if ARGS.git_repos:
         eligible = load_git_repos()
     else:
         include = []
-        exclude = []
+        exclude = list(completed)
         # non-deterministic by default; pass --seed to fix the shuffle order so the
         # same package subset is drawn across configs/models for consistent ablations
         pkgs_list = list(pkgs.values())

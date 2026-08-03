@@ -3,13 +3,14 @@ import time
 
 import spack
 import spack.tag
+from spack.cmd.tags import packages_with_tags
 
 from extraction.package import get_pkg_objs
 
 
 def dump_packages():
     repo = spack.repo.PATH.get_repo("builtin")
-    tag_pkgs = spack.tag.packages_with_tags(
+    tag_pkgs = packages_with_tags(
         ["e4s", "proxy-app"], installed=False, skip_empty=True
     )
 
@@ -24,20 +25,6 @@ def dump_packages():
         for dep in deps:
             # we only want the string of the spec package name, not the spec itself because that can contain other metadata
             other_pkgs.add(spack.spec.Spec(dep.spec).name)
-
-    # get lists of all virtuals and provider specs
-    # compilers, libraries, other important packages
-    virtual_pkgs = set(spack.repo.PATH.provider_index.providers.keys())
-
-    provider_pkgs = {
-        spack.spec.Spec(provider).name
-        for pkg in virtual_pkgs
-        # providers_for returns a list of specs so we're just flattening the list
-        for provider in spack.repo.PATH.providers_for(pkg)
-    }
-
-    # Union all potential extra specs
-    other_pkgs.update(provider_pkgs)
 
     # remove everything we've already collected
     other_pkgs -= e4s_pkgs

@@ -10,7 +10,7 @@ RUN . spack/share/spack/setup-env.sh && \
     spack compiler find && \
     spack mirror add tutorial /mirror && \
     spack mirror add develop https://binaries.spack.io/develop && \
-    spack buildcache keys --install --trust && \
+    echo "y" | spack buildcache keys --install --trust && \
     spack repo create $HOME/experiment experiment && \
     spack repo add $HOME/experiment/spack_repo/experiment && \
     spack config add config:url_fetch_method:'curl -k -q'

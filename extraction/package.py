@@ -3,8 +3,7 @@ import importlib
 import sys
 
 import spack
-import spack.fetch_strategy as fs
-from spack.package_base import PackageBase
+from spack.package_base import PackageBase, for_package_version
 from spack.spec import Spec
 
 from extraction.package_schema import (
@@ -135,7 +134,7 @@ def extract_versions(pkg: PackageBase, spec: str) -> list[Version]:
             metadata["submodules"] = str(metadata.get("submodules"))
 
         # not sure why the spec needs to be called this way
-        fetcher = fs.for_package_version(pkg(Spec(spec)), obj)
+        fetcher = for_package_version(pkg(Spec(spec)), obj)
         versions.append(
             Version(
                 version=obj.string,
@@ -439,8 +438,12 @@ def get_pkg_objs(pkg_names: list[str], repo: spack.repo.Repo) -> dict[str, Packa
     pkg_dict = {}
 
     for pkg_name in pkg_names:
-        obj = get_pkg_obj(pkg_name, repo)
-        if obj:
-            pkg_dict[pkg_name] = obj
+        try:
+            obj = get_pkg_obj(pkg_name, repo)
+            if obj:
+                pkg_dict[pkg_name] = obj
+        except ExtractionError as e:
+            print(f"skipping {pkg_name}: {e}")
+            continue
 
     return pkg_dict
