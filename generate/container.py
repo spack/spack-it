@@ -3,6 +3,7 @@ import os
 import re
 import tarfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
 from podman import PodmanClient
@@ -12,6 +13,18 @@ class SpackError(Exception):
     def __init__(self, out: str):
         super().__init__(out)
         self.output = out
+
+
+# LLNL's network re-signs outbound HTTPS certs with its own internal CA
+# (cspca.llnl.gov) rather than blocking them outright. The host trusts that CA
+# already (see HOST_CA_BUNDLE below); the container image (built from a generic
+# public base image) doesn't, which breaks spack's buildcache index fetch --
+# a urllib/ssl code path controlled by config:ssl_certs, not config:verify_ssl.
+# Copying the host's already-trusted bundle in on every container start (rather
+# than baking a static copy into the image) means this stays correct even if
+# the host's CA bundle is later rotated, and needs no image rebuild.
+HOST_CA_BUNDLE = Path(os.getenv("HOST_CA_BUNDLE", "/etc/pki/tls/certs/ca-bundle.crt"))
+CONTAINER_CA_BUNDLE = "/etc/llnl-ca-bundle.crt"
 
 
 RESERVED_NAMES_ONLY_LOWERCASE = frozenset(
@@ -70,7 +83,22 @@ class BuilderContainer:
             command=["sleep", "infinity"],
             detach=True,
         )
+        self._install_ca_bundle()
         return self
+
+    def _install_ca_bundle(self):
+        """copy the host's trusted CA bundle into the container and point spack
+        at it, so buildcache index fetches survive LLNL's TLS interception --
+        see the HOST_CA_BUNDLE comment above. No-op (with a log line) if the
+        host doesn't have a bundle at that path, e.g. outside LLNL's network."""
+        if not HOST_CA_BUNDLE.exists():
+            self._log(
+                f"note: {HOST_CA_BUNDLE} not found on host, skipping CA bundle install "
+                "(set HOST_CA_BUNDLE if it lives elsewhere on this system)"
+            )
+            return
+        self._write_file(CONTAINER_CA_BUNDLE, HOST_CA_BUNDLE.read_text())
+        self.exec(f"spack config add config:ssl_certs:{CONTAINER_CA_BUNDLE}")
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.container:
