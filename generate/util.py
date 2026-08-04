@@ -109,21 +109,28 @@ def load_pkg_list(path: str) -> list[str]:
     )
 
 
-def load_completed_pkgs(results_path: str) -> set[str]:
+def load_completed_pkgs(
+    results_path: str, success_status: str, max_attempts: int
+) -> set[str]:
     """
     Scan an existing results jsonl and return the set of package names that
-    already made it through `generate_handler` at least once (i.e., have any
-    logged status other than "workflow_fail", which is only written when
-    `pipeline()` catches a `GenerateException` before a package is counted
-    toward `--samples`). Used to resume an interrupted/incomplete run without
-    re-spending LLM calls and build attempts on packages already given their
-    full `--max_attempts` budget.
+    generate_handler has already spent its full budget on: either it reached
+    `success_status` (e.g. "install") on some attempt, or it used up its
+    last attempt (attempt_num == max_attempts - 1) without succeeding.
+    Packages only partway through their attempts when a run was interrupted
+    (e.g. one early load_fail and nothing else) are NOT completed -- --resume
+    should still spend their remaining attempts rather than skip them.
+
+    workflow_fail rows (logged with attempt_num=None, before any attempt is
+    made) never satisfy either condition, so they're excluded automatically
+    without a separate check.
     """
     path = Path(results_path)
     if not path.exists():
         return set()
 
-    completed: set[str] = set()
+    succeeded: set[str] = set()
+    exhausted: set[str] = set()
     with path.open() as f:
         for line in f:
             line = line.strip()
@@ -135,10 +142,14 @@ def load_completed_pkgs(results_path: str) -> set[str]:
                 continue
 
             name = row.get("pkg_name")
-            if name and row.get("status") != "workflow_fail":
-                completed.add(name)
+            if not name:
+                continue
+            if row.get("status") == success_status:
+                succeeded.add(name)
+            if row.get("attempt_num") == max_attempts - 1:
+                exhausted.add(name)
 
-    return completed
+    return succeeded | exhausted
 
 
 class ArtifactStore:

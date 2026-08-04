@@ -582,7 +582,9 @@ def pipeline():
 
     completed: set[str] = set()
     if ARGS.resume:
-        completed = load_completed_pkgs(ARGS.results)
+        completed = load_completed_pkgs(
+            ARGS.results, ARGS.success_status, ARGS.max_attempts
+        )
         runs = len(completed)
         ui.completed = runs
         ui.log(f"--resume: {runs} package(s) already completed in {ARGS.results}")
