@@ -23,7 +23,7 @@ from cmake_parser.ast import (
 from cmake_parser.error import CMakeParseError
 from cmake_parser.parser import parse_tree
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.WARNING)
 log = logging.getLogger(__name__)
 
 EXCLUDE_DIRS = {
