@@ -391,10 +391,11 @@ def render_template(template: str, params: dict) -> str:
 
 # LLM HANDLING
 class RateLimiter:
-    def __init__(self, max_calls, period):
+    def __init__(self, max_calls, period, log=print):
         self.max_calls = max_calls
         self.period = period  # in seconds
         self.calls = deque()
+        self._log = log
 
     def wait(self):
         now = time.time()
@@ -402,13 +403,13 @@ class RateLimiter:
             self.calls.popleft()
         if len(self.calls) >= self.max_calls:
             sleep_time = self.period - (now - self.calls[0])
-            print(f"Rate limit reached, sleeping for {sleep_time:.2f}s")
+            self._log(f"Rate limit reached, sleeping for {sleep_time:.2f}s")
             time.sleep(sleep_time)
             self.calls.popleft()
         self.calls.append(time.time())
 
 
-def call_llm(prompt: str, model: str) -> tuple[int, str]:
+def call_llm(prompt: str, model: str, log=print) -> tuple[int, str]:
     # rturns the number of tokens and the response
     headers = {
         "Content-Type": "application/json",
@@ -431,7 +432,7 @@ def call_llm(prompt: str, model: str) -> tuple[int, str]:
     )
 
     if response.status_code != 200:
-        print(response.text)
+        log(response.text)
         raise GenerateException(f"model http error: {response.status_code}")
 
     res = response.json()

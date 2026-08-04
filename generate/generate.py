@@ -14,6 +14,7 @@ from extraction.repository import (
     fetch_and_expand,
 )
 from generate.container import BuilderContainer, SpackError, Stage
+from generate.ui import ProgressUI
 from generate.util import (
     ArtifactStore,
     GenerateException,
@@ -247,7 +248,8 @@ results = ResultsStore(
     audit=ARGS.audit,
     rag=ARGS.rag,
 )
-rate_limiter = RateLimiter(max_calls=10, period=60)
+ui = ProgressUI(total=ARGS.samples, max_attempts=ARGS.max_attempts)
+rate_limiter = RateLimiter(max_calls=10, period=60, log=ui.log)
 artifacts = ArtifactStore(run_id=run_id)
 
 if ARGS.rag:
@@ -290,7 +292,7 @@ def generate_recipe(
     artifacts.save(pkg_name, f"generate_{attempt}.txt", prompt)
 
     rate_limiter.wait()
-    num_tokens, recipe = call_llm(prompt, ARGS.model)
+    num_tokens, recipe = call_llm(prompt, ARGS.model, log=ui.log)
     # sometimes models will indent the first line, we don't want this to count against them if they output otherwise valid recipes
     recipe = recipe.lstrip()
     artifacts.save(pkg_name, f"package_{attempt}.py", recipe)
@@ -302,7 +304,8 @@ def generate_handler(pkg: Package):
     pkg_recipe = status = error = audit_output = rag_chunks = None
     references = {}
 
-    with BuilderContainer() as ctr:
+    ui.start_pkg(pkg.name)
+    with BuilderContainer(log=ui.log) as ctr:
         for attempt_num in range(ARGS.max_attempts):
             scores = {
                 "dependency_score": None,
@@ -310,7 +313,7 @@ def generate_handler(pkg: Package):
                 "variants_extras": None,
             }
 
-            print(f"attempt={attempt_num}, prev_error={error}")
+            ui.set_attempt(attempt_num, error)
 
             if not error:
                 num_tokens, pkg_recipe, references, rag_chunks = generate_pkg(pkg)
@@ -337,6 +340,7 @@ def generate_handler(pkg: Package):
                 try:
                     stage.action()
                     status = stage.name
+                    ui.set_stage(status)
 
                     # once the package has been loaded, we can get the scores for the package class
                     # we cannot get scores when git_repos is enabled as there is no ground truth for them...
@@ -344,13 +348,13 @@ def generate_handler(pkg: Package):
                         try:
                             scores["dependency_score"] = ctr.deps_score(pkg.name)
                         except Exception as exc:
-                            print(f"error getting dep score: {exc}")
+                            ui.log(f"error getting dep score: {exc}")
                         try:
                             scores["variants_score"], scores["variants_extras"] = (
                                 ctr.cmake_args_score(pkg.name)
                             )
                         except Exception as exc:
-                            print(f"error getting cmake score: {exc}")
+                            ui.log(f"error getting cmake score: {exc}")
 
                     results.log(
                         pkg_name=pkg.name,
@@ -367,6 +371,7 @@ def generate_handler(pkg: Package):
                 except SpackError as exc:
                     error = str(exc)
                     status = f"{stage.name}_fail"
+                    ui.set_stage(status)
                     results.log(
                         pkg_name=pkg.name,
                         status=status,
@@ -407,7 +412,7 @@ def generate_pkg(
     references = {}
     rag_chunks = None
 
-    print(f"generating package {target_pkg.name}")
+    ui.log(f"generating package {target_pkg.name}")
 
     prompt_input = {"pkg_name": target_pkg.name}
 
@@ -492,7 +497,7 @@ def generate_pkg(
         )
 
         rate_limiter.wait()
-        _, cmake_distilled = call_llm(cmake_distilled_prompt, ARGS.model)
+        _, cmake_distilled = call_llm(cmake_distilled_prompt, ARGS.model, log=ui.log)
         prompt_input["cmake_distilled"] = cmake_distilled
 
     if (
@@ -579,7 +584,8 @@ def pipeline():
     if ARGS.resume:
         completed = load_completed_pkgs(ARGS.results)
         runs = len(completed)
-        print(f"--resume: {runs} package(s) already completed in {ARGS.results}")
+        ui.completed = runs
+        ui.log(f"--resume: {runs} package(s) already completed in {ARGS.results}")
 
     if ARGS.git_repos:
         eligible = load_git_repos()
@@ -630,6 +636,10 @@ def pipeline():
         else:
             # valid run
             runs += 1
+            ui.finish_pkg()
 
 
-pipeline()
+try:
+    pipeline()
+finally:
+    ui.close()

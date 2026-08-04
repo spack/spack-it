@@ -53,7 +53,7 @@ RESERVED_NAMES_ONLY_LOWERCASE = frozenset(
 
 
 class BuilderContainer:
-    def __init__(self, image="builder", namespace="experiment"):
+    def __init__(self, image="builder", namespace="experiment", log: Callable[[str], None] = print):
         self.image = image
         self.socket = os.getenv("PODMAN_SOCKET")
         self.client = None
@@ -61,6 +61,7 @@ class BuilderContainer:
         # TODO add comment
         self.pkgs_path = "/home/spack/experiment/spack_repo/experiment/packages"
         self.namespace = namespace
+        self._log = log
 
     def __enter__(self):
         self.client = PodmanClient(base_url=f"unix://{self.socket}")
@@ -85,7 +86,7 @@ class BuilderContainer:
             self.client.close()
 
     def exec(self, cmd, workdir=None):
-        print(cmd)
+        self._log(cmd)
         code, out = self.container.exec_run(cmd, demux=True, workdir=workdir)
         stdout, stderr = out
         return (
