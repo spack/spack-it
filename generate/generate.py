@@ -12,6 +12,8 @@ from extraction.repository import (
     build_tree,
     detect_build_systems,
     fetch_and_expand,
+    format_raw_build_files,
+    get_build_files,
 )
 from generate.container import BuilderContainer, SpackError, Stage
 from generate.ui import ProgressUI
@@ -156,6 +158,18 @@ parser.add_argument(
     help="option for experiment where we let the llm do all the research with no parsed data included",
 )
 parser.add_argument(
+    "--target_buildsys",
+    type=str,
+    default=None,
+    help="only continue generation for packages whose live-detected build system "
+    "(detect_build_systems, requires a real fetch, so this can't be pre-verified from "
+    "the input pickle alone) matches this value; a mismatch is treated as workflow_fail "
+    "so pipeline() auto-skips it and keeps sampling toward --samples. 'autotools' also "
+    "accepts a live detection of 'autoreconf' (same GNU Autotools family, no separate "
+    "parser distinction). Also widens pipeline()'s default eligibility filter (which "
+    "otherwise only samples packages with 'cmake' in pkg.build_systems) to this value.",
+)
+parser.add_argument(
     "--resume",
     action="store_true",
     help="skip packages already completed in --results (per load_completed_pkgs) and "
@@ -180,6 +194,18 @@ PKG_LIST = load_pkg_list(ARGS.pkg_list) if ARGS.pkg_list else None
 
 if ARGS.samples is None:
     ARGS.samples = len(PKG_LIST) if PKG_LIST is not None else 5
+
+
+def _target_buildsys_mismatch(detected: str) -> bool:
+    """True if --target_buildsys is set and `detected` doesn't satisfy it. 'autotools'
+    also accepts a live detection of 'autoreconf' (same GNU Autotools family)."""
+    if not ARGS.target_buildsys:
+        return False
+    if detected == ARGS.target_buildsys:
+        return False
+    if ARGS.target_buildsys == "autotools" and detected == "autoreconf":
+        return False
+    return True
 
 
 def _config_slug() -> str:
@@ -427,6 +453,11 @@ def generate_pkg(
     if cache is not None:
         prompt_input["version"] = cache["version"]
         if not ARGS.baseline:
+            if _target_buildsys_mismatch(cache["build_sys"]):
+                raise GenerateException(
+                    f"detected build sys {cache['build_sys']!r} != "
+                    f"--target_buildsys {ARGS.target_buildsys!r}"
+                )
             prompt_input["build_sys"] = cache["build_sys"]
             prompt_input["features"] = cache["features"]
             prompt_input["cmake_parsed"] = cache["cmake_parsed"]
@@ -460,16 +491,43 @@ def generate_pkg(
                     detect_build_systems(path)
                 )
 
-                if prompt_input["build_sys"] != "cmake":
+                if _target_buildsys_mismatch(prompt_input["build_sys"]):
                     raise GenerateException(
-                        f"build sys {prompt_input['build_sys']} not supported"
+                        f"detected build sys {prompt_input['build_sys']!r} != "
+                        f"--target_buildsys {ARGS.target_buildsys!r}"
                     )
-                    # TODO add ability to parse and extract build system info
-                    # need to change/generalize parse_cmake and get_build_files
 
-                # store this for use in distilled_cmake
-                # parsed cmake is always required for distilled_cmake..but it needs a different name or else it'll be injected into the prompt for recipe generation
-                prompt_input["cmake_parsed"] = str(parse_cmake(path))
+                if prompt_input["build_sys"] == "cmake":
+                    # store this for use in distilled_cmake
+                    # parsed cmake is always required for distilled_cmake..but it needs a different name or else it'll be injected into the prompt for recipe generation
+                    prompt_input["cmake_parsed"] = str(parse_cmake(path))
+                elif prompt_input["build_sys"] in ("autotools", "autoreconf", "makefile"):
+                    # no distillation template exists for these yet -- only the raw
+                    # file dump (get_build_files) is generalized, not an LLM-summarized
+                    # equivalent of cmake_distilled
+                    if ARGS.distilled_cmake:
+                        raise GenerateException(
+                            f"build sys {prompt_input['build_sys']} not supported "
+                            "for --distilled_cmake (no distillation template implemented)"
+                        )
+                    raw_files = get_build_files(
+                        path,
+                        "autotools"
+                        if prompt_input["build_sys"] in ("autotools", "autoreconf")
+                        else "makefile",
+                    )
+                    prompt_input["cmake_parsed"] = (
+                        format_raw_build_files(raw_files, repo_root=path) or None
+                    )
+                elif ARGS.raw_buildsys or ARGS.distilled_cmake:
+                    raise GenerateException(
+                        f"build sys {prompt_input['build_sys']} not supported "
+                        "for --raw_buildsys/--distilled_cmake (no parser implemented)"
+                    )
+                    # TODO add ability to parse and extract build system info for
+                    # any other build systems (bazel, meson, ...)
+                else:
+                    prompt_input["cmake_parsed"] = None
 
             if ARGS.raw_buildsys:
                 prompt_input["raw_buildsys"] = prompt_input["cmake_parsed"]
@@ -611,7 +669,10 @@ def pipeline():
             # generation step as the program should be able to figure it out by itself
             if pkg.name.startswith("py-"):
                 continue
-            if "cmake" in pkg.build_systems:
+            # pkg.build_systems (Spack's declared build_system variant) is only a cheap
+            # pre-filter/prediction here -- the live detect_build_systems() call inside
+            # generate_pkg() is the real check, enforced via --target_buildsys
+            if (ARGS.target_buildsys or "cmake") in pkg.build_systems:
                 eligible.append(pkg)
 
         eligible = [p for p in eligible if p.name not in exclude]

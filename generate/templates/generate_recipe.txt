@@ -68,7 +68,7 @@ BUILD SYSTEM METADATA:
 
 {% endif %}
 
-{% if raw_buildsys  %}
+{% if raw_buildsys and build_sys == 'cmake' %}
 I am providing you CMake information for the project. You should liberally infer dependencies, variants, and other build behavior from this data.
 
 The identifiers of the variants and dependencies should be in the style that spack would expect. For instance: "cmake", "cuda", "openmpi".
@@ -80,8 +80,8 @@ The identifiers of the variants and dependencies should be in the style that spa
 
 # Variants
 - Boolean `WITH_*`, `ENABLE_*`, `USE_*`, `BUILD_*`  ⟶ `variant(...)`
-- BOOL-typed CMake variables with ON/OFF defaults → strong signal for toggleable Spack variants  
-- STRING with enumerated `STRINGS`                   ⟶ multi-valued variant  
+- BOOL-typed CMake variables with ON/OFF defaults → strong signal for toggleable Spack variants
+- STRING with enumerated `STRINGS`                   ⟶ multi-valued variant
   _Example_: `ZFP_ROUNDING_MODE` (NEVER,FIRST,LAST) ⟶ `variant('round', values=('never','first','last'))`
 - Do not skip options that default to OFF, are advanced, or internal, if they control behavior, library outputs, or optional language bindings.
 
@@ -105,11 +105,61 @@ The identifiers of the variants and dependencies should be in the style that spa
 ### Feature subsets
 - Python  : any `find_package(Python* …)`            ⟶ `variant('python')`, associated deps
 - CUDA    : `find_package(CUDA)` or `enable_language(CUDA)`
-   - GPU-specific files, target_link_libraries(... cuda) → implies depends_on('cuda'), gated on +cuda  
+   - GPU-specific files, target_link_libraries(... cuda) → implies depends_on('cuda'), gated on +cuda
 - OpenMP  : `find_package(OpenMP)`
    - OpenMP will never be a dependency, but it may be a variant. Setting it as a variant causes a compiler dependency that provides OpenMP.
 - MPI     : `find_package(MPI)`
    - MPI is a virtual package, ie depends_on("mpi")
+{% endif %}
+
+{% if raw_buildsys and build_sys in ('autotools', 'autoreconf') %}
+I am providing you the project's Autotools files (configure.ac/configure.in, Makefile.am). You should liberally infer dependencies, variants, and other build behavior from this data.
+
+The identifiers of the variants and dependencies should be in the style that spack would expect. For instance: "mpi", "cuda", "openmpi".
+
+- You MUST NOT invent versions, variants, or dependencies.
+- Do not impart knowledge that Spack may need but is not present in this metadata. This will cause the package to fail to build.
+
+# HEURISTICS
+
+# Variants
+- `AC_ARG_ENABLE([foo], ...)` / `AC_ARG_WITH([foo], ...)`  ⟶ `variant(...)`
+- The resulting `--enable-foo`/`--disable-foo`, `--with-foo`/`--without-foo` configure flags ⟶ toggleable Spack variants, passed via `configure_args` on `AutotoolsPackage`
+- Do not skip options that are advanced or internal if they control behavior, library outputs, or optional language bindings.
+
+# COMPILERS
+- `AC_PROG_CC`, `AC_PROG_CXX`, `AC_PROG_FC`/`AC_PROG_F77` ⟶ language/compiler requirements
+- `AM_CONDITIONAL` blocks gating optional subdirectories/targets ⟶ candidate variants
+
+### Dependencies
+- `AC_CHECK_LIB`, `AC_CHECK_HEADER(S)`, `PKG_CHECK_MODULES` ⟶ `depends_on('x')`
+- Wrapped in `AS_IF`/conditional macros tied to an `AC_ARG_ENABLE`/`AC_ARG_WITH` ⟶ add `when='+<variant>'`
+
+# Versions
+
+- YOU MUST NEVER guess version constraints
+
+### Feature subsets
+- MPI  : `AX_MPI`, `AC_CHECK_LIB([mpi], ...)`, or a configure flag referencing MPI compilers (mpicc/mpicxx) ⟶ MPI is a virtual package, ie depends_on("mpi")
+- CUDA : `AC_CHECK_PROG([nvcc], ...)` or an explicit `--with-cuda` style flag ⟶ depends_on('cuda'), gated on +cuda
+{% endif %}
+
+{% if raw_buildsys and build_sys == 'makefile' %}
+I am providing you the project's raw Makefile(s). Bare Makefiles rarely expose configurable options the way CMake/Autotools do -- there is no separate configure-time flag mechanism, so most "variants" a Makefile-based project supports (if any) come from environment/make variables (e.g. `WITH_X`, `USE_X`, `ENABLE_X` checked via `ifdef`/`ifeq`) rather than a formal options system.
+
+- You MUST NOT invent versions, variants, or dependencies.
+- Do not impart knowledge that Spack may need but is not present in this metadata. This will cause the package to fail to build.
+- Do not invent a variant/options system that the Makefile doesn't actually implement -- most Makefile-based packages should have few or no variants.
+
+# HEURISTICS
+- Compiler/tool variables (CC, CXX, FC, MPICC) referenced in the Makefile ⟶ language/compiler or MPI requirements
+- Library references in LDFLAGS/LIBS, or explicit `-lfoo` link flags ⟶ `depends_on('foo')`
+- `pkg-config`/`pkgconf` calls for a library ⟶ `depends_on('<that library>')`
+- `ifdef`/`ifeq` blocks toggling optional compilation units or link flags ⟶ candidate variant, only if genuinely optional
+
+# Versions
+
+- YOU MUST NEVER guess version constraints
 {% endif %}
 
 {% if raw_buildsys %}

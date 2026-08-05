@@ -29,7 +29,12 @@ def get_build_files(
     """
     build_patterns = {
         "cmake": ["**/CMakeLists.txt", "**/*.cmake"],
-        # "make": ["**/Makefile"],
+        # configure/configure.in/Makefile.in etc. are autoconf/automake-generated or
+        # boilerplate GNU auxiliary scripts (config.guess, install-sh, ...) -- no real
+        # authored signal, so intentionally excluded here even though they're part of
+        # what detect_build_systems() clues off of
+        "autotools": ["**/configure.ac", "**/configure.in", "**/Makefile.am"],
+        "makefile": ["**/Makefile", "**/makefile", "**/GNUmakefile"],
         # "bazel": ["**/BUILD", "**/BUILD.bazel"],
         # "meson": ["**/meson.build"],
         # TODO extend here as needed
@@ -44,6 +49,7 @@ def get_build_files(
 
     repo_root = Path(repo_root).resolve()
     build_files_paths = []
+    seen_paths = set()
     excluded_dirs = {"test", "tests", "example", "examples", "samples", "demo", "demos"}
 
     for pattern in patterns:
@@ -52,7 +58,21 @@ def get_build_files(
                 rel_parts = path.relative_to(repo_root).parts
                 if any(part.lower() in excluded_dirs for part in rel_parts):
                     continue
-                build_files_paths.append(path.resolve())
+                resolved = path.resolve()
+                # patterns like "Makefile"/"makefile" can both match the same
+                # file on case-insensitive filesystems (macOS/Windows) -- and
+                # rglob's returned Path preserves the *pattern's* casing, not
+                # the real on-disk name, so even resolved path strings differ.
+                # dedup by (device, inode), the only thing that actually
+                # identifies the same physical file regardless of path string.
+                try:
+                    identity = (resolved.stat().st_dev, resolved.stat().st_ino)
+                except OSError:
+                    identity = resolved
+                if identity in seen_paths:
+                    continue
+                seen_paths.add(identity)
+                build_files_paths.append(resolved)
 
     if not build_files_paths:
         return {}
@@ -81,6 +101,29 @@ def get_build_files(
             print(f"Failed to read {path}: {e}")
 
     return build_files
+
+
+def format_raw_build_files(files: dict[str, str], repo_root=None) -> str:
+    """
+    Renders get_build_files()'s {path: content} mapping into a single string
+    for prompt injection, one section per file. Paths are shown relative to
+    repo_root when given, to avoid leaking the local tmp staging path into the
+    prompt.
+    """
+    if not files:
+        return ""
+
+    parts = []
+    for path, content in files.items():
+        label = path
+        if repo_root is not None:
+            try:
+                label = str(Path(path).relative_to(Path(repo_root).resolve()))
+            except ValueError:
+                pass
+        parts.append(f"--- {label} ---\n{content}")
+
+    return "\n\n".join(parts)
 
 
 def build_tree(

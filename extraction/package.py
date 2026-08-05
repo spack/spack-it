@@ -3,7 +3,8 @@ import importlib
 import sys
 
 import spack
-from spack.package_base import PackageBase, for_package_version
+from spack.fetch_strategy import for_package_version
+from spack.package_base import PackageBase
 from spack.spec import Spec
 
 from extraction.package_schema import (
@@ -425,6 +426,12 @@ def get_pkg_obj(pkg_name: str, repo: spack.repo.Repo) -> Package:
         **extract_base(pkg_class, BASE_FIELDS),
         **{key: extractor(pkg_class) for key, extractor in EXTRACTORS.items()},
     )
+
+    if pkg.virtual:
+        # virtual packages (e.g. mpi, blas) have no real fetchable source --
+        # extract_versions -> for_package_version crashes uncaught for these
+        # since there's nothing to guess a fetch strategy from
+        raise ExtractionError(f"{pkg_name} is a virtual package, nothing to extract")
 
     # we depend on the pkg.variants to extract the build systems, so we need to separate this assignment
     pkg.build_systems = extract_build_systems(pkg.variants)
