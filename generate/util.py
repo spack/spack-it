@@ -38,14 +38,24 @@ class GenerateException(Exception):
 EXTRACTION_CACHE_DIR = Path("data/metadata_cache")
 
 
+EXTRACTION_CACHE_KEYS = {"version", "build_sys", "features", "cmake_parsed", "raw_files"}
+
+
 def load_extraction_cache(pkg_name: str) -> dict | None:
     """
-    Returns the cached {version, build_sys, features, cmake_parsed} for a
-    package, or None if nothing is cached yet. This is the fetch + build-system
-    detection + CMake parse result, which is identical across every ablation
-    config/model for a given package, so it's cached once regardless of how
-    many configs reuse it. Does NOT include CMake distillation -- that's an
-    LLM call whose output depends on the model, so it's always computed fresh.
+    Returns the cached {version, build_sys, features, cmake_parsed, raw_files}
+    for a package, or None if nothing is cached yet. This is the fetch + build-
+    system detection + CMake parse/raw-file-dump result, which is identical
+    across every ablation config/model for a given package, so it's cached
+    once regardless of how many configs reuse it. Does NOT include CMake
+    distillation -- that's an LLM call whose output depends on the model, so
+    it's always computed fresh.
+
+    If the cached entry is missing any of EXTRACTION_CACHE_KEYS (e.g. it was
+    written before a field like raw_files existed), it's treated the same as
+    a cache miss -- returns None so a fresh extraction repopulates it under
+    the current shape, instead of silently handing back a dict with a missing
+    field.
 
     Caveat: keyed on pkg_name only, so if `--input` is regenerated with
     different version selections for the same package names, stale entries
@@ -55,7 +65,10 @@ def load_extraction_cache(pkg_name: str) -> dict | None:
     if not path.exists():
         return None
     with path.open() as f:
-        return json.load(f)
+        cached = json.load(f)
+    if not EXTRACTION_CACHE_KEYS.issubset(cached):
+        return None
+    return cached
 
 
 def save_extraction_cache(pkg_name: str, data: dict) -> None:
