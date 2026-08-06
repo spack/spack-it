@@ -461,8 +461,9 @@ def generate_pkg(
             prompt_input["build_sys"] = cache["build_sys"]
             prompt_input["features"] = cache["features"]
             prompt_input["cmake_parsed"] = cache["cmake_parsed"]
+            prompt_input["raw_files"] = cache.get("raw_files")
             if ARGS.raw_buildsys:
-                prompt_input["raw_buildsys"] = prompt_input["cmake_parsed"]
+                prompt_input["raw_buildsys"] = prompt_input["raw_files"]
     else:
         if ARGS.git_repos:
             stage = GitCloneStage(target_pkg.url)
@@ -497,10 +498,21 @@ def generate_pkg(
                         f"--target_buildsys {ARGS.target_buildsys!r}"
                     )
 
+                # cmake_parsed: the parsed CMakeContext AST, cmake-only, used only by
+                # --distilled_cmake. raw_files: the raw build-file text dump, used by
+                # --raw_buildsys -- computed the same way (get_build_files, shallowest
+                # depth) for every supported build system, cmake included, so the
+                # "raw" comparison is symmetric across build systems rather than
+                # giving cmake the richer AST-parsed view.
+                prompt_input["cmake_parsed"] = None
+                prompt_input["raw_files"] = None
+
                 if prompt_input["build_sys"] == "cmake":
-                    # store this for use in distilled_cmake
-                    # parsed cmake is always required for distilled_cmake..but it needs a different name or else it'll be injected into the prompt for recipe generation
                     prompt_input["cmake_parsed"] = str(parse_cmake(path))
+                    raw = get_build_files(path, "cmake")
+                    prompt_input["raw_files"] = (
+                        format_raw_build_files(raw, repo_root=path) or None
+                    )
                 elif prompt_input["build_sys"] in ("autotools", "autoreconf", "makefile"):
                     # no distillation template exists for these yet -- only the raw
                     # file dump (get_build_files) is generalized, not an LLM-summarized
@@ -510,14 +522,14 @@ def generate_pkg(
                             f"build sys {prompt_input['build_sys']} not supported "
                             "for --distilled_cmake (no distillation template implemented)"
                         )
-                    raw_files = get_build_files(
+                    raw = get_build_files(
                         path,
                         "autotools"
                         if prompt_input["build_sys"] in ("autotools", "autoreconf")
                         else "makefile",
                     )
-                    prompt_input["cmake_parsed"] = (
-                        format_raw_build_files(raw_files, repo_root=path) or None
+                    prompt_input["raw_files"] = (
+                        format_raw_build_files(raw, repo_root=path) or None
                     )
                 elif ARGS.raw_buildsys or ARGS.distilled_cmake:
                     raise GenerateException(
@@ -526,11 +538,9 @@ def generate_pkg(
                     )
                     # TODO add ability to parse and extract build system info for
                     # any other build systems (bazel, meson, ...)
-                else:
-                    prompt_input["cmake_parsed"] = None
 
             if ARGS.raw_buildsys:
-                prompt_input["raw_buildsys"] = prompt_input["cmake_parsed"]
+                prompt_input["raw_buildsys"] = prompt_input["raw_files"]
 
             if ARGS.tree:
                 prompt_input["tree"] = build_tree(path, max_depth=ARGS.tree_depth)
@@ -543,6 +553,7 @@ def generate_pkg(
                     "build_sys": prompt_input["build_sys"],
                     "features": prompt_input["features"],
                     "cmake_parsed": prompt_input["cmake_parsed"],
+                    "raw_files": prompt_input["raw_files"],
                 },
             )
 
