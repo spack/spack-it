@@ -1,6 +1,7 @@
 import io
 import os
 import re
+import shlex
 import tarfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -227,7 +228,7 @@ for b in $BINS; do
 done
 echo "SMOKE kind=binary checked=$CHECKED crashed=$CRASHED timed_out=$TIMED_OUT"
 """
-        _, stderr, stdout = self.exec(["bash", "-c", script])
+        _, stderr, stdout = self.exec(f"bash -c {shlex.quote(script)}")
         line = next((l for l in stdout.splitlines() if l.startswith("SMOKE ")), None)
         if line is None:
             return {"kind": "smoke_test_error", "detail": (stderr or stdout)[:300]}
