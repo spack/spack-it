@@ -16,6 +16,19 @@ class SpackError(Exception):
         self.output = out
 
 
+def _truncate_output(text: str, max_chars: int) -> str:
+    """Cap command output so a runaway build log (e.g. a large concurrent
+    install pulling in many failed dependencies) can't blow past the LLM's
+    context window. Keeps a head slice (often has the specific compiler/
+    linker error) and a tail slice (has spack's final failure summary),
+    dropping the middle."""
+    if len(text) <= max_chars:
+        return text
+    half = max_chars // 2
+    omitted = len(text) - max_chars
+    return f"{text[:half]}\n\n... [{omitted} characters omitted] ...\n\n{text[-half:]}"
+
+
 # LLNL's network re-signs outbound HTTPS certs with its own internal CA
 # (cspca.llnl.gov) rather than blocking them outright. The host trusts that CA
 # already (see HOST_CA_BUNDLE below); the container image (built from a generic
@@ -124,9 +137,9 @@ class BuilderContainer:
             (stdout or b"").decode("utf-8", "replace").rstrip(),
         )
 
-    def _raise_if_failed(self, code: int, out: str):
+    def _raise_if_failed(self, code: int, out: str, max_chars: int = 20_000):
         if code != 0:
-            raise SpackError(out)
+            raise SpackError(_truncate_output(out, max_chars))
 
     def _write_file(self, dest: str, content: str):
         """Write string content into a file inside the container at `dest`,
