@@ -106,6 +106,15 @@ parser.add_argument(
 parser.add_argument(
     "--git_repos", action="store_true", help="generate packages for a list of git repos"
 )
+parser.add_argument(
+    "--git_repos_file",
+    type=str,
+    default=None,
+    help="path to a 'name,url,branch' CSV file (one repo per line, '#' comments "
+    "and blank lines skipped) to use as the --git_repos repo list instead of the "
+    "hardcoded default in generate/util.py:load_git_repos(), e.g. "
+    "data/contamination_git_repos.txt. Ignored unless --git_repos is also set.",
+)
 
 # CATEGORY: build system information
 parser.add_argument(
@@ -659,7 +668,8 @@ def pipeline():
         ui.log(f"--resume: {runs} package(s) already completed in {ARGS.results}")
 
     if ARGS.git_repos:
-        eligible = load_git_repos()
+        eligible = load_git_repos(ARGS.git_repos_file)
+        eligible = [p for p in eligible if p.name not in completed]
     else:
         include = PKG_LIST if PKG_LIST is not None else []
         exclude = list(completed)

@@ -493,7 +493,35 @@ class GitPackage:
     branch: str
 
 
-def load_git_repos():
+def load_git_repos(path: str | None = None) -> list["GitPackage"]:
+    """
+    Returns the list of git repos to generate against under --git_repos.
+    If `path` is given, reads "name,url,branch" triples (one per line, '#'
+    comments and blank lines skipped, via the same _read_lines reader
+    load_pkg_list/load_ignore_patterns use) from that file instead of the
+    hardcoded set below -- lets --git_repos_file point at any candidate
+    list (e.g. data/contamination_git_repos.txt) without editing this
+    function. Malformed lines are skipped with a warning rather than
+    crashing the run.
+    """
+    if path is not None:
+        lines = _read_lines(
+            path,
+            "warning: git_repos file {path} not found, no repos will be selected",
+        )
+        repos: dict[str, tuple[str, str]] = {}
+        for line in lines:
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) != 3 or not all(parts):
+                print(f"warning: skipping malformed git_repos line: {line!r}")
+                continue
+            name, url, branch = parts
+            repos[name] = (url, branch)
+        return [
+            GitPackage(name=name, url=url, branch=branch)
+            for name, (url, branch) in repos.items()
+        ]
+
     # repos = {
     #     "libigl": "https://github.com/libigl/libigl.git",
     #     "draco": "https://github.com/google/draco.git",

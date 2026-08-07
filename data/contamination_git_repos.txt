@@ -1,0 +1,67 @@
+# contamination-set candidates: HPC-adjacent, CMake-based, not already in Spack
+# name,url,branch -- consumed by generate/util.py:load_git_repos(path)
+#
+# original 41 (from generate/util.py load_git_repos(), cross-checked against
+# /Users/melone1/list for spack membership; 6 of the original 47 were already
+# in spack and are excluded: draco, meshoptimizer, units, polyclipper, snls, polytope)
+libigl,https://github.com/libigl/libigl.git,main
+lethe,https://github.com/chaos-polymtl/lethe.git,master
+cryptominisat,https://github.com/msoos/cryptominisat.git,master
+minisat,https://github.com/niklasso/minisat.git,master
+febio,https://github.com/febiosoftware/FEBio.git,develop
+stp,https://github.com/stp/stp.git,master
+fastchem,https://github.com/NewStrangeWorlds/FastChem.git,master
+incompact3d,https://github.com/xcompact3d/Incompact3d.git,master
+opensees,https://github.com/OpenSees/OpenSees.git,master
+opm-simulators,https://github.com/OPM/opm-simulators.git,master
+bpftrace,https://github.com/bpftrace/bpftrace.git,master
+actor-framework,https://github.com/actor-framework/actor-framework.git,main
+meshlib,https://github.com/MeshInspector/MeshLib.git,master
+highs,https://github.com/ERGO-Code/HiGHS.git,master
+libmpc,https://github.com/nicolapiccinelli/libmpc.git,master
+umt,https://github.com/LLNL/UMT.git,develop
+scaleuprom,https://github.com/LLNL/scaleupROM.git,main
+zero-rk,https://github.com/LLNL/zero-rk.git,master
+smith,https://github.com/LLNL/smith.git,develop
+spheral,https://github.com/LLNL/spheral.git,develop
+continuationsolvers,https://github.com/LLNL/ContinuationSolvers.git,master
+tribol,https://github.com/LLNL/Tribol.git,develop
+saltatlas,https://github.com/LLNL/saltatlas.git,main
+ygm,https://github.com/LLNL/ygm.git,master
+exaconstit,https://github.com/LLNL/ExaConstit.git,exaconstit-dev
+mgmol,https://github.com/LLNL/mgmol.git,release
+exadis,https://github.com/LLNL/exadis.git,main
+matred,https://github.com/LLNL/matred.git,master
+krowkee,https://github.com/LLNL/krowkee.git,main
+parelag,https://github.com/LLNL/parelag.git,master
+ampe,https://github.com/LLNL/AMPE.git,release
+dr-evt,https://github.com/LLNL/dr_evt.git,main
+havoqgt,https://github.com/LLNL/havoqgt.git,master
+gridkit,https://github.com/ORNL/GridKit.git,develop
+smoothg,https://github.com/LLNL/smoothG.git,master
+tripoll,https://github.com/LLNL/tripoll.git,main
+spify,https://github.com/LLNL/spify.git,master
+psuade,https://github.com/LLNL/psuade.git,3.0.0
+adapt,https://github.com/LLNL/ADAPT.git,release
+psuade-lite,https://github.com/LLNL/psuade-lite.git,main
+perroht,https://github.com/LLNL/Perroht.git,main
+#
+# 16 new candidates (2026-08-06), sourced from LLNL/ORNL/sandialabs/
+# Argonne-National-Laboratory/pnnl GitHub orgs, CMake usage confirmed via
+# shallow clone, cross-checked against /Users/melone1/list
+griddyn,https://github.com/LLNL/GridDyn.git,main
+elemental,https://github.com/LLNL/Elemental.git,hydrogen
+pylibrom,https://github.com/LLNL/pylibROM.git,main
+benchpark,https://github.com/LLNL/benchpark.git,develop
+cxxpolyfit,https://github.com/LLNL/CxxPolyFit.git,master
+hykkt,https://github.com/ORNL/hykkt.git,develop
+vertex-cfd,https://github.com/ORNL/VERTEX-CFD.git,master
+cabanapd,https://github.com/ORNL/CabanaPD.git,main
+tchem,https://github.com/sandialabs/TChem.git,main
+tracktable,https://github.com/sandialabs/tracktable.git,main
+neml,https://github.com/Argonne-National-Laboratory/neml.git,main
+shad,https://github.com/pnnl/SHAD.git,master
+nwgraph,https://github.com/pnnl/NWGraph.git,master
+ripples,https://github.com/pnnl/ripples.git,master
+dm-sim,https://github.com/pnnl/DM-Sim.git,master
+nwq-sim,https://github.com/pnnl/NWQ-Sim.git,main
