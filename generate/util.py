@@ -257,6 +257,8 @@ class ResultsStore:
         dependency_score: float = None,
         variants_score: float = None,
         variants_extras: int = None,
+        # SMOKE TEST (see BuilderContainer.smoke_test_pkg)
+        smoke_test: dict = None,
     ):
         if status not in STATUSES:
             raise ValueError(f"status {status} not in list of statuses")
@@ -281,6 +283,10 @@ class ResultsStore:
             "variants_extras": variants_extras,
             **self.features,
         }
+
+        if smoke_test is not None:
+            for key, value in smoke_test.items():
+                run_entry[f"smoke_{key}"] = value
 
         for name, ref in references.items():
             # example: ref_random_buildsys: pkg_name

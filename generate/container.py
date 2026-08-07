@@ -177,6 +177,67 @@ class BuilderContainer:
         code, stderr, _ = self.exec(cmd)
         self._raise_if_failed(code, stderr)
 
+    def smoke_test_pkg(self, pkg: str) -> dict:
+        """
+        Quick, generic smoke test of an installed package's prefix -- does NOT
+        run anything the generated package.py defines (no `spack test`, no
+        custom test() method). Just inspects what actually landed in the
+        install prefix:
+          - no files at all -> kind=empty_prefix
+          - has bin/ executables -> kind=binary, runs each (capped at 8) with
+            `--version`, 5s timeout, stdin from /dev/null; counts how many
+            exit via a crash signal (>=128, excluding timeout's own 124) vs.
+            time out vs. run cleanly (any exit code, since an unrecognized
+            flag exiting non-zero with a usage message is not a crash)
+          - headers/libs only, no bin/ -> kind=headers_or_libs_only (existence
+            check only, nothing is executed)
+          - `spack location -i` itself fails -> kind=no_prefix
+        Returns a dict of the parsed result; never raises (a broken package
+        should show up as a smoke-test finding, not blow up the pipeline).
+        """
+        script = f"""
+PREFIX=$(spack location -i {self.namespace}.{pkg} 2>/dev/null)
+if [ -z "$PREFIX" ] || [ ! -d "$PREFIX" ]; then
+  echo "SMOKE kind=no_prefix"
+  exit 0
+fi
+BINS=$(find "$PREFIX/bin" -maxdepth 1 -type f -perm -u+x 2>/dev/null | head -n 8)
+HEADER=$(find "$PREFIX/include" -type f \\( -name '*.h' -o -name '*.hpp' -o -name '*.hh' -o -name '*.H' \\) 2>/dev/null | head -n 1)
+LIB=$(find "$PREFIX/lib" "$PREFIX/lib64" -maxdepth 1 -type f \\( -name '*.so*' -o -name '*.a' -o -name '*.dylib' \\) 2>/dev/null | head -n 1)
+if [ -z "$BINS" ]; then
+  if [ -n "$HEADER" ] || [ -n "$LIB" ]; then
+    echo "SMOKE kind=headers_or_libs_only"
+  else
+    echo "SMOKE kind=empty_prefix"
+  fi
+  exit 0
+fi
+CHECKED=0
+CRASHED=0
+TIMED_OUT=0
+for b in $BINS; do
+  CHECKED=$((CHECKED+1))
+  timeout 5 "$b" --version </dev/null >/dev/null 2>&1
+  code=$?
+  if [ $code -eq 124 ]; then
+    TIMED_OUT=$((TIMED_OUT+1))
+  elif [ $code -ge 128 ]; then
+    CRASHED=$((CRASHED+1))
+  fi
+done
+echo "SMOKE kind=binary checked=$CHECKED crashed=$CRASHED timed_out=$TIMED_OUT"
+"""
+        _, stderr, stdout = self.exec(["bash", "-c", script])
+        line = next((l for l in stdout.splitlines() if l.startswith("SMOKE ")), None)
+        if line is None:
+            return {"kind": "smoke_test_error", "detail": (stderr or stdout)[:300]}
+
+        result: dict = {}
+        for field in line.removeprefix("SMOKE ").split():
+            key, _, value = field.partition("=")
+            result[key] = int(value) if value.isdigit() else value
+        return result
+
     def audit_pkg(self, pkg: str):
         cmd = f"spack audit packages {self.namespace}.{pkg}"
         code, stderr, stdout = self.exec(cmd)

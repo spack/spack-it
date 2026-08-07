@@ -101,6 +101,17 @@ parser.add_argument(
     help="enable spack package audit checks between each step",
 )
 parser.add_argument(
+    "--smoke_test",
+    action="store_true",
+    help="after a successful install, run a generic smoke test against the "
+    "install prefix (BuilderContainer.smoke_test_pkg): checks files actually "
+    "landed in the prefix and, if there are bin/ executables, that they don't "
+    "crash when run with --version. Independent of anything the generated "
+    "package.py defines -- does not use spack test/the package's test() "
+    "method. Logged as smoke_* fields on the install row, does not affect "
+    "--success_status or attempt control flow.",
+)
+parser.add_argument(
     "--rag", action="store_true", help="use RAG as a retrieval technique"
 )
 parser.add_argument(
@@ -391,12 +402,20 @@ def generate_handler(pkg: Package):
                         except Exception as exc:
                             ui.log(f"error getting cmake score: {exc}")
 
+                    smoke_result = None
+                    if status == "install" and ARGS.smoke_test:
+                        try:
+                            smoke_result = ctr.smoke_test_pkg(pkg.name)
+                        except Exception as exc:
+                            ui.log(f"error running smoke test: {exc}")
+
                     results.log(
                         pkg_name=pkg.name,
                         status=status,
                         attempt_num=attempt_num,
                         references=references,
                         num_tokens=num_tokens,
+                        smoke_test=smoke_result,
                         **scores,
                     )
 
