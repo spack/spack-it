@@ -9,38 +9,25 @@ from analysis.core import (
     pre,
 )
 
-df_all = pre("results/main_results/all.jsonl")
-
-
-# 30 attempts
-attempts30 = pre("results/30_attempts.jsonl")
-attempts30 = cumulative_success_df(attempts30)
-
-
-attempts30["group"] = attempts30["group"].replace(
-    {
-        "gpt-5": "gpt-5 with Similar Spack Package",
-    }
-)
+# k=20 plateau study: gpt-5.4-mini, distilled metadata, one similar reference,
+# extended from the standard k=5 budget.
+attempts_k20 = pre("results/sc26/gpt-5.4-mini_similar1_distilled_k20.jsonl")
+attempts_k20 = cumulative_success_df(attempts_k20)
 
 with PlotEnvironment(font_path="fonts/gillsans.ttf"):
     ax = LinePlot()
     ax.plot(
-        data=attempts30,
+        data=attempts_k20,
         x="attempt",
         y="rate",
-        # hue="group",
-        # markers=True,
-        # legend=True,
-        # legend_title="Coenfiguration",
         xlabel="Generation Attempts",
         ylabel="Cumulative Installation Rate",
-        ylim=(0, 1),
-        # title="Plateau of Interative Generation Loop",
-        # title_fontsize=16,
+        ylim=(0, 0.5),
+        title="Convergence of Iterative Improvement",
+        title_fontsize=14,
     )
 
-    ticks = sorted(attempts30["attempt"].unique())
+    ticks = [1, 5, 10, 15, 20]
     plt.xticks(ticks)  # sets ticks on the current axes
     plt.gca().xaxis.set_major_formatter(mtick.FormatStrFormatter("%d"))
     plt.gcf().set_size_inches(6, 4)

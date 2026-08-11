@@ -1,12 +1,29 @@
-# stats_simple.py
 # Compare scores between has_reference==0 ("none") and has_reference==1 ("with_ref")
-# Uses: Welch's t-test, Mann–Whitney U, and simple effect sizes.
+# Uses: Welch's t-test, Mann-Whitney U, and simple effect sizes.
+
+import argparse
 
 import numpy as np
 import pandas as pd
 from scipy.stats import mannwhitneyu, shapiro, ttest_ind
 
 from analysis.core import pre
+
+parser = argparse.ArgumentParser(
+    description="Compare dependency_score/variants_score between reference and "
+    "no-reference configurations (Welch's t-test, Mann-Whitney U, Cohen's d, "
+    "rank-biserial r) across one or more results jsonl files."
+)
+parser.add_argument(
+    "results", nargs="+", help="one or more results jsonl paths to combine"
+)
+parser.add_argument(
+    "--model",
+    type=str,
+    default=None,
+    help="restrict to a single model (e.g. gpt-5.4); omit for the full dataset",
+)
+ARGS = parser.parse_args()
 
 
 def describe(x: pd.Series):
@@ -24,7 +41,7 @@ def describe(x: pd.Series):
 
 
 def cohens_d(x, y):
-    # d = (mean_y - mean_x) / pooled_sd  (positive ⇒ group y larger)
+    # d = (mean_y - mean_x) / pooled_sd  (positive => group y larger)
     x = pd.to_numeric(x, errors="coerce").dropna()
     y = pd.to_numeric(y, errors="coerce").dropna()
     n1, n2 = len(x), len(y)
@@ -37,29 +54,29 @@ def cohens_d(x, y):
 
 def rank_biserial_from_u(u, n1, n2):
     # For U computed with the FIRST group as x:
-    # r_rb > 0 ⇒ FIRST group tends to be larger; r_rb < 0 ⇒ second group tends larger
+    # r_rb > 0 => FIRST group tends to be larger; r_rb < 0 => second group tends larger
     return float(1 - (2 * u) / (n1 * n2))
 
 
 # -----------------------------
 # Load and split
 # -----------------------------
-df = pre("results/main_results/all.jsonl")
+df = pd.concat([pre(path) for path in ARGS.results], ignore_index=True)
+if ARGS.model is not None:
+    df = df[df["model"] == ARGS.model].copy()
 df["has_reference"] = (df["reference"] != "none").astype(int)
-# df = df[(df["status"] == "install")].copy()
-# df = df[(df["model"] == "gpt-5")].copy()
 df = df.dropna(subset=["dependency_score", "variants_score"]).copy()
 
 none = df[df["has_reference"] == 0]
 with_ref = df[df["has_reference"] == 1]
 
-scores = ["dependency_score", "variants_score"]
-
+scope = ARGS.model if ARGS.model is not None else "full dataset"
+print(f"Scope: {scope}")
 print("Group sizes:")
 print(f"  none (0):     n={len(none)}")
 print(f"  with_ref (1): n={len(with_ref)}")
 
-for score in scores:
+for score in ["dependency_score", "variants_score"]:
     print("\n" + "=" * 70)
     print(f"Score: {score}")
     print("=" * 70)
@@ -80,7 +97,7 @@ for score in scores:
         f"median={d1['median']:.6g}, IQR=[{d1['q1']:.6g}, {d1['q3']:.6g}]"
     )
 
-    # ---- Quick normality check (same as you did)
+    # ---- Quick normality check
     W0, p0 = shapiro(x) if len(x) >= 3 else (np.nan, np.nan)
     W1, p1 = shapiro(y) if len(y) >= 3 else (np.nan, np.nan)
     print("Normality (Shapiro-Wilk):")
@@ -92,20 +109,20 @@ for score in scores:
     print("Welch's t-test:")
     print(f"  t={t_stat:.3f}, p={t_p:.3g}")
 
-    # ---- Mann–Whitney U (distribution / median shift)
+    # ---- Mann-Whitney U (distribution / median shift)
     # Note: U is for the FIRST sample (x = none)
     u_stat, mw_p = mannwhitneyu(x, y, alternative="two-sided", method="auto")
-    print("Man-Whitney U:")
+    print("Mann-Whitney U:")
     print(f"  U={u_stat:.3f}, p={mw_p:.3g}")
 
     # ---- Simple effect sizes
-    d = cohens_d(x, y)  # >0 ⇒ with_ref higher than none
-    r_rb = rank_biserial_from_u(u_stat, len(x), len(y))  # >0 ⇒ none > with_ref
+    d = cohens_d(x, y)  # >0 => with_ref higher than none
+    r_rb = rank_biserial_from_u(u_stat, len(x), len(y))  # >0 => none > with_ref
     print("Effect sizes:")
-    print(f"  Cohen's d (with_ref = none) = {d:.3f}")
+    print(f"  Cohen's d (with_ref - none) = {d:.3f}")
     print(
         f"  Rank-biserial r (FIRST=none) = {r_rb:.3f}  "
-        f"{'(r<0 ⇒ with_ref higher)' if not np.isnan(r_rb) else ''}"
+        f"{'(r<0 => with_ref higher)' if not np.isnan(r_rb) else ''}"
     )
 
 print("\nDone.")
